@@ -1,0 +1,390 @@
+.island-map, .geographic-map {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 265px;
+  isolation: isolate;
+  overflow: hidden;
+  background: #0d3541;
+}
+.island-map {
+  cursor: grab;
+  touch-action: pan-y;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 43px, #c0e5e30c 43px 44px),
+    repeating-linear-gradient(90deg, transparent 0 43px, #c0e5e30c 43px 44px),
+    radial-gradient(ellipse at 47% 35%, #185364, #0b313d 74%);
+}
+.island-map:active { cursor: grabbing; }
+.island-map:focus-visible { outline: 3px solid #70d2c8; outline-offset: -3px; }
+.island-relief {
+  position: absolute;
+  max-width: none;
+  transform-origin: 0 0;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.island-canvas, .island-vignette, .geographic-map-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.island-canvas {
+  opacity: 0;
+  transition: opacity 420ms ease;
+  background: #103a45;
+  pointer-events: none;
+}
+.island-canvas.is-loaded, .geographic-map-layer.is-loaded { opacity: 1; }
+.island-vignette {
+  pointer-events: none;
+  box-shadow: inset 0 0 85px 9px #061f2b67;
+  background: linear-gradient(180deg, #082b3508 70%, #082b3533);
+}
+.terrain-caption {
+  position: absolute;
+  left: 17px;
+  bottom: 16px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  color: #d4e6e3;
+  text-shadow: 0 1px 7px #072f38;
+  font-weight: 600;
+}
+.island-scale {
+  position: absolute;
+  bottom: 41px;
+  left: 18px;
+  border-right: 1px solid #b9d4ce;
+  border-left: 1px solid #b9d4ce;
+  border-bottom: 1px solid #b9d4ce;
+  min-height: 6px;
+  text-align: center;
+  white-space: nowrap;
+  color: #e6f6eb;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.island-attribution {
+  position: absolute;
+  left: 122px;
+  bottom: 14px;
+  color: #bfd8d5;
+  font-size: 0.69rem;
+  max-width: calc(100% - 190px);
+  line-height: 1.15;
+  text-shadow: 0 1px 6px #072f38;
+}
+.island-attribution { z-index: 3; }
+.map-credits { position: relative; }
+.map-credits summary {
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #113841;
+  color: #e0ebe8;
+  text-shadow: none;
+}
+.map-credits > div {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 190px;
+  padding: 10px;
+  border-radius: 7px;
+  color: #123737;
+  background: #eef6ec;
+  box-shadow: 0 4px 18px #082b3755;
+  font: 600 .8125rem/1.4 var(--font-display);
+  text-align: left;
+  text-shadow: none;
+}
+.relief-attribution .map-credits > div { left: auto; right: 0; }
+.relief-attribution { left: auto; right: 17px; }
+.map-tools {
+  position: absolute;
+  z-index: 2;
+  bottom: 15px;
+  right: 15px;
+  display: grid;
+  border: 1px solid #70a5a26e;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #082c37d9;
+}
+.map-tools button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: #f2f8ef;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.map-tools button + button { border-top: 1px solid #70a5a248; }
+.map-tools button:hover { background: #26747c; }
+.map-tools button:focus-visible { outline: 2px solid #9fe4d9; outline-offset: -3px; }
+.island-marker, .geographic-marker { --marker-colour: #e46664; }
+.island-marker.response, .geographic-marker.response { --marker-colour: #f5bf59; }
+.island-marker.leak, .geographic-marker.leak { --marker-colour: #64bee8; }
+.island-marker.verified, .geographic-marker.verified { --marker-colour: #73d9ac; }
+.island-marker {
+  position: absolute;
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: 0;
+  color: #fff;
+  cursor: pointer;
+  z-index: 1;
+}
+.island-marker:hover, .island-marker:focus-visible, .island-marker[aria-pressed='true'] { z-index: 2; }
+.map-marker-dot, .geographic-marker {
+  width: 13px;
+  height: 13px;
+  display: block;
+  border-radius: 50%;
+  background: var(--marker-colour);
+  border: 2px solid #f5faf1;
+  box-shadow: 0 0 0 3px #16373a85, 0 2px 10px #082832bd;
+}
+.island-marker[aria-pressed='true'] .map-marker-dot {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--marker-colour) 52%, transparent), 0 2px 10px #082832bd;
+}
+.map-marker-label {
+  position: absolute;
+  display: block;
+  top: 50%;
+  left: 28px;
+  transform: translateY(-50%);
+  background: #102e35eb;
+  border: 1px solid #cce6da3f;
+  color: #fffef4;
+  border-radius: 6px;
+  padding: 3px 7px 4px;
+  font-size: 0.72rem;
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 4px 9px #09292e52;
+}
+.marker-left .map-marker-label { left: auto; right: 28px; }
+.island-marker[aria-pressed='true'] .map-marker-label { border-color: var(--marker-colour); }
+.island-marker:hover .map-marker-label { background: #183e44; }
+.island-marker:focus-visible, .geographic-marker:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.geographic-map-layer {
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.geographic-map-layer[aria-hidden='true'] { pointer-events: none; }
+.geographic-marker {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  padding: 0;
+}
+.geographic-marker[aria-pressed='true'] { box-shadow: 0 0 0 5px #183d4966; }
+.relief-map, .relief-map:active { cursor: default; }
+.street-loading {
+  position: absolute;
+  z-index: 2;
+  bottom: 46px;
+  right: 14px;
+  border-radius: 6px;
+  background: #0d3442;
+  color: #fffef4;
+  padding: 5px 9px;
+  font-size: 0.75rem;
+}
+@media (max-width: 580px) {
+  .island-map, .geographic-map { min-height: 255px; }
+  .terrain-caption { left: 10px; bottom: 11px; }
+  .island-scale { left: 11px; bottom: 32px; }
+  .island-attribution { left: 110px; bottom: 11px; max-width: calc(100% - 160px); }
+  .relief-attribution { left: auto; right: 10px; text-align: right; }
+  .map-tools { bottom: 10px; right: 10px; }
+  .map-tools button { width: 33px; height: 32px; }
+  .map-marker-label { padding-right: 5px; padding-left: 5px; font-size: .67rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .island-canvas, .geographic-map-layer { transition: none; }
+}
+
+.operational-scene {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid #d3e2de;
+  border-radius: 16px;
+  background: #fffefa;
+  color: #143938;
+}
+.scene-heading, .scene-controls, .scene-stage {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+.scene-heading h3 { margin: 5px 0 0; font-size: 1.09rem; line-height: 1.2; }
+.scene-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #41716a;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .025em;
+}
+.scene-mode, .scene-controls button, .scene-stage button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 36px;
+  padding: 5px 10px;
+  background: #e8f3ee;
+  color: #194c45;
+  border: 1px solid #c9e0d7;
+  border-radius: 7px;
+  font-size: .76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.scene-mode[aria-pressed='true'] { background: #175d56; color: #fff; }
+.scene-mode:disabled { opacity: .64; cursor: default; }
+.scene-controls button:hover, .scene-stage button:hover { background: #d4eae3; }
+.scene-view {
+  position: relative;
+  height: clamp(190px, 33vw, 315px);
+  overflow: hidden;
+  background: radial-gradient(ellipse at 40% 35%, #365f62, #153842 70%);
+}
+.pipe-view { background: radial-gradient(ellipse at 44% 25%, #486c69, #1a3d46 78%); }
+.scene-view-note {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  border-radius: 6px;
+  color: #e6f5ef;
+  background: #11313de0;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.scene-controls { padding-bottom: 5px; }
+.scene-progress-label {
+  flex: 1;
+  display: grid;
+  gap: 5px;
+  color: #325d59;
+  font-size: .82rem;
+  font-weight: 700;
+}
+.scene-progress-label input { width: 100%; margin: 0; accent-color: #216956; }
+.scene-stage { align-items: flex-end; flex-wrap: wrap; padding-bottom: 5px; }
+.scene-stage label {
+  display: grid;
+  gap: 6px;
+  color: #325d59;
+  font-size: .82rem;
+  font-weight: 700;
+}
+.scene-stage select {
+  padding: 7px 10px;
+  border: 1px solid #abc9c3;
+  border-radius: 6px;
+  background: #fffefa;
+  color: #1a4946;
+  font-size: .84rem;
+  min-height: 36px;
+}
+.scene-description { margin: 6px 16px 15px; color: #3a5c58; font-size: .84rem; line-height: 1.45; }
+.route-alternative {
+  position: absolute;
+  inset: 34px 14px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 15px;
+}
+.route-relief {
+  position: absolute;
+  height: 117%;
+  width: auto;
+  max-width: none;
+  top: -8%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: url('/mauritius-relief.webp') center / 100% 100% no-repeat;
+}
+.route-alternative span {
+  display: grid;
+  justify-items: center;
+  min-width: 105px;
+  max-width: 133px;
+  gap: 7px;
+  z-index: 1;
+  padding: 10px;
+  border: 1px solid #7aadab;
+  border-radius: 8px;
+  background: #174551;
+  color: #e2f7ee;
+  text-align: center;
+  font-size: .8rem;
+  font-weight: 700;
+}
+.pipe-alternative {
+  position: absolute;
+  inset: 15% 10%;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  overflow: hidden;
+  background: repeating-linear-gradient(0deg, #886b57 0 18px, #997e63 18px 20px, #8a6f5d 20px 40px);
+}
+.pipe-alt-surface {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  padding: 7px;
+  border-bottom: 2px dashed #e6d8a6;
+  text-align: center;
+  color: #f1f6e5;
+  background: #425451;
+  font-size: .75rem;
+  font-weight: 700;
+}
+.pipe-alt-cross { width: 90%; height: 14px; border-radius: 8px; background: linear-gradient(#b2d5d3, #669295 48%, #427476); }
+.pipe-alt-junction {
+  position: absolute;
+  top: calc(50% - 10px);
+  display: grid;
+  min-height: 20px;
+  place-items: center;
+  padding: 4px 9px;
+  border: 1px solid #d2eff2;
+  border-radius: 6px;
+  color: #faffff;
+  background: #236e89;
+  font-size: .75rem;
+  font-weight: 700;
+}
+.pipe-alt-junction.is-repaired { background: #29674b; }
+@media (max-width: 470px) {
+  .scene-heading, .scene-controls, .scene-stage { padding-right: 10px; padding-left: 10px; }
+  .scene-description { margin-right: 10px; margin-left: 10px; }
+}
