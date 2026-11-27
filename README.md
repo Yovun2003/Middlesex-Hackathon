@@ -1,6 +1,6 @@
 # NouDilo
 
-A Mauritius water response application with one persistent 3D neighbourhood, resident reporting, coordinator operations, and assigned field-team workflows. The actual API, permissions, saved records, delivery review, and independent repair verification drive the same world state.
+A Mauritius water response application with one persistent 3D neighbourhood, resident reporting, coordinator operations, and assigned field-team workflows. The actual API, permissions, saved records, delivery review, and independent repair verification drive the same world
 
 ## Install and run
 
