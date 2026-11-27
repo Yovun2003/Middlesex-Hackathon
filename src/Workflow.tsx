@@ -1771,17 +1771,19 @@ function RepairTask({
 
 export function FieldWorkspace({
   store,
+  resource,
   initialTab,
   initialId,
 }: {
   store: NouDiloStore
+  resource?: string | null
   initialTab?: FieldTab
   initialId?: string
 }) {
   const [tab, setTab] = useState<FieldTab>(
     () =>
       initialTab ??
-      (store.state.repairs.some((item) => item.status === 'assigned' || item.status === 'in-progress')
+      (crewsFor(store.state).includes(resource ?? '') || store.state.repairs.some((item) => item.status === 'assigned' || item.status === 'in-progress')
         ? 'repairs'
         : 'tankers'),
   )
@@ -1794,7 +1796,7 @@ export function FieldWorkspace({
     <section className="wf-workspace wf-workers" aria-label="Worker assignments">
       <header className="wf-workspace-header">
         <div>
-          <h1>Field assignments</h1>
+          <h1>{tab === 'repairs' ? 'Repair work' : 'Tanker deliveries'}</h1>
           <p>Choose tanker or repair work. Record progress and send completed work to the coordinator.</p>
         </div>
       </header>

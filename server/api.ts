@@ -72,7 +72,7 @@ export async function createHttpApi(options: { repository?: Persistence; demo?: 
   app.post('/api/demo-login', async (request, reply) => {
     if (!demo || !/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(request.ip)) throw new ServiceError(404, 'This operation is unavailable.')
     const role = text(record(request.body).role, 24)
-    const email = ({ resident: 'resident@demo.noudilo.test', resident2: 'neighbour@demo.noudilo.test', coordinator: 'coordinator@demo.noudilo.test', driver: 'driver@demo.noudilo.test', crew: 'crew@demo.noudilo.test' } as Record<string, string>)[role]
+    const email = ({ resident: 'resident@demo.noudilo.test', resident2: 'neighbour@demo.noudilo.test', coordinator: 'admin@demo.noudilo.test', driver: 'driver@demo.noudilo.test', crew: 'worker@demo.noudilo.test' } as Record<string, string>)[role]
     if (!email) throw new ServiceError(400, 'Choose a demonstration role.')
     const account = await repository.read(async tx => { const [row] = await tx.rows('SELECT id,email,role,resource FROM accounts WHERE email = :email', { email }); return row ? publicAccount(row) : null })
     if (!account) throw new ServiceError(503, 'The isolated demonstration is not configured.')

@@ -19,6 +19,17 @@ For the isolated hackathon demonstration:
 npm run demo
 ```
 
+Demo email/password sign-in (all passwords are **`Randnousdilo`**):
+
+| Email | Workspace |
+| --- | --- |
+| `Admin@demo.noudilo.test` | Coordinator / operations centre |
+| `Resident@demo.noudilo.test` | Resident reporting and tracking |
+| `Worker@demo.noudilo.test` | Repair work |
+| `Driver@demo.noudilo.test` | Tanker deliveries |
+
+Email matching ignores case; the password is case-sensitive. Demo startup also updates the passwords of existing seeded demo accounts without deleting reports or assignments. These accounts are seeded only in explicit demo mode, not normal/Oracle deployments.
+
 Use **Demo roles** in the header to enter the Resident, Neighbour, Coordinator, Tanker driver, or Maintenance crew account. This explicitly enabled local environment seeds a reviewed neighbouring Curepipe shortage and example resources. It writes to `.noudilo-demo/`, separate from existing data. Quick role access is loopback-only, uses seeded demo accounts, and is unavailable in normal or Oracle mode.
 
 The [demonstration script](docs/demonstration.md) covers the complete Curepipe shortage and Rose Hill leak scenario. Repeated demo runs preserve their records. Use a new `NOU_DATA_DIR` containing `demo` for a fresh isolated scenario; do not delete existing user records.
