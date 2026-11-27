@@ -1,54 +1,35 @@
-import { Component, Suspense, lazy, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { canRenderWebGL } from './geo'
-import './stage.css'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { Eye } from 'lucide-react'
+import { TOWNS } from './model'
+import { useWorld, type CameraDestination, type WorldCue } from './world/state'
 
 export type StageVisual = 'tap' | 'tanker' | 'pipe'
-const Scene = lazy(() => import('./Scenes').then(({ OperationsScene }) => ({ default: OperationsScene })))
 
-class StageBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
-  state = { failed: false }
-  static getDerivedStateFromError() { return { failed: true } }
-  render() { return this.state.failed ? this.props.fallback : this.props.children }
-}
-
-export function Stage({ visual, phase, strength, focus = 0, title, status, children, className = '' }: {
-  visual: StageVisual
-  phase: number
-  strength?: number
-  focus?: number
-  title: string
-  status: string
-  children?: ReactNode
-  className?: string
+/** Task context for the single persistent renderer. This component never creates a canvas. */
+export function Stage({ visual, phase, strength, title, status, children, className = '', town, duration, condition, destination, depotTown, depotLabel }: {
+  visual: StageVisual; phase: number; strength?: number; focus?: number; title: string; status: string; children?: ReactNode; className?: string; town?: string; duration?: string; condition?: string; destination?: CameraDestination; depotTown?: string; depotLabel?: string
 }) {
-  const [angle, setAngle] = useState(0)
-  const gesture = useRef<number | null>(null)
-  const supports3d = canRenderWebGL()
-  const loading = <div className="stage-loading"><span />Preparing the scene</div>
-  const unavailable = <div className="stage-loading">The 3D illustration is unavailable</div>
-  return (
-    <figure className={`operation-stage ${className}`} data-visual={visual} data-phase={phase}>
-      <div className="stage-frame" onPointerDown={event => {
-        if (!supports3d || event.button !== 0 || (event.target as HTMLElement).closest('button, a, input')) return
-        gesture.current = event.clientX
-        event.currentTarget.setPointerCapture(event.pointerId)
-      }} onPointerUp={event => {
-        if (gesture.current === null) return
-        const distance = event.clientX - gesture.current
-        gesture.current = null
-        if (Math.abs(distance) > 12) setAngle(current => current + distance * .012)
-      }} onPointerCancel={() => { gesture.current = null }}>
-        <span className="stage-title">{title}</span>
-        <StageBoundary key={visual} fallback={unavailable}>
-          <Suspense fallback={loading}><Scene key={visual} visual={visual} phase={phase} strength={strength} angle={angle + focus} /></Suspense>
-        </StageBoundary>
-        {supports3d && <div className="stage-turn" role="group" aria-label="Scene angle">
-          <button type="button" aria-label="Rotate scene left" onClick={() => setAngle(current => current - .55)}><ChevronLeft size={18} /></button>
-          <button type="button" aria-label="Rotate scene right" onClick={() => setAngle(current => current + .55)}><ChevronRight size={18} /></button>
-        </div>}
-      </div>
-      <figcaption aria-live="polite"><strong>{status}</strong>{children && <p>{children}</p>}</figcaption>
-    </figure>
-  )
+  const ref = useRef<HTMLElement>(null)
+  const focus = (force = false) => {
+    const localTown = town ?? TOWNS.find(name => title.includes(name)) ?? useWorld.getState().town
+    const declined = status.toLowerCase().includes('declined')
+    const cue: WorldCue = {
+      kind: declined ? 'shortage' : visual === 'tap' ? 'shortage' : visual === 'pipe' ? 'leak' : 'tanker', town: localTown, phase, duration,
+      condition: condition ?? (visual === 'tap' ? status.includes('Low pressure') || phase === .28 ? 'Low pressure' : status.includes('No running water') ? 'No running water' : undefined : strength === 1 ? 'Heavy flow' : strength === .62 ? 'Continuous flow' : undefined),
+      label: status,
+      ...(depotTown ? { depotTown, depotLabel } : {}),
+      destination: destination ?? (declined ? 'ResidentVillage' : visual === 'tap' ? 'WaterShortageScene' : visual === 'pipe' ? phase > 0 ? 'RepairLocation' : 'PublicLeakScene' : phase === 0 ? 'TankerDepot' : phase >= .88 ? 'DeliveryLocation' : 'TankerRoute'),
+    }
+    useWorld.getState().focus(cue)
+    if (force) useWorld.setState(s => ({ cameraRequest: s.cameraRequest + 1, explore: false }))
+  }
+  useEffect(() => {
+    const dialog = document.querySelector('dialog[open]')
+    if (dialog && !ref.current?.closest('dialog')) return
+    focus()
+  }, [visual, phase, strength, title, status, town, duration, condition, destination, depotTown, depotLabel])
+  return <figure ref={ref} className={`world-cue ${className}`} data-visual={visual} data-phase={phase}>
+    <figcaption><span className="world-cue-label"><Eye size={16} /> {title}</span><strong>{status}</strong>{children && <p>{children}</p>}</figcaption>
+
+  </figure>
 }

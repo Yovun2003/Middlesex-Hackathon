@@ -1,183 +1,94 @@
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { DatabaseSync } from 'node:sqlite'
-import { reduceNouDilo, type Action, type Notice, type State } from '../src/model.ts'
-import { authenticate, createSession, getAccount, openDatabase, readState, register, revokeSession, type Account } from './db.ts'
+import Fastify from 'fastify'
+import type { ServerResponse } from 'node:http'
+import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { readAction, record, text } from './actions.ts'
+import { createPersistence, provision, publicAccount, type Persistence } from './persistence.ts'
+import { createService, ServiceError } from './service.ts'
+import { seedDemo } from './demo.ts'
 
-const coordinatorActions = new Set<Action['type']>([
-  'verifyReport', 'assignTanker', 'publishDelivery', 'verifyRestoration', 'assignCrew', 'verifyRepair', 'publishNotice',
-])
-
-function canAct(account: Account, action: Action, state: State) {
-  if (account.role === 'resident') return action.type === 'submitReport'
-  if (account.role === 'coordinator') return coordinatorActions.has(action.type)
-  switch (action.type) {
-    case 'advanceTanker':
-    case 'recordProblem':
-    case 'recordDelivery':
-      return state.tankers.some(item => item.id === action.id && item.vehicleId === account.resource)
-    case 'startRepair':
-    case 'inspectRepair':
-    case 'submitRepair':
-      return state.repairs.some(item => item.id === action.id && item.crew === account.resource)
-    default:
-      return false
+export async function createHttpApi(options: { repository?: Persistence; demo?: boolean } = {}) {
+  const repository = options.repository ?? await createPersistence()
+  const demo = options.demo ?? process.env.NOU_DEMO === '1'
+  if (demo) {
+    if (repository.kind !== 'sqlite' || !(process.env.NOU_DATA_DIR ?? '').includes('demo')) throw new Error('Demo mode requires a separate SQLite directory whose name includes demo.')
+    await seedDemo(repository)
   }
-}
-
-function projectState(db: DatabaseSync, state: State, account?: Account): State {
-  if (account?.role === 'coordinator') return state
-  const safe = {
-    ...state, audit: [], repairs: [], reports: [],
-    leaks: state.leaks.map(leak => ({ ...leak, location: '' })),
-    tankers: state.tankers.map(item => ({
-      id: item.id, incidentId: item.incidentId,
-      status: item.status === 'published' ? 'published' as const : 'assigned' as const,
-      actualLitres: item.status === 'published' ? item.actualLitres : undefined,
-      approvedLitres: 0, vehicleId: '', destination: '', issues: [],
-    })),
-  }
-  if (account?.role === 'resident') {
-    const ids = new Set(db.prepare('SELECT report FROM owners WHERE account = ?').all(account.id).map(row => row.report))
-    return { ...safe, reports: state.reports.filter(item => ids.has(item.id)) }
-  }
-  if (account?.role === 'worker') {
-    const tankers = state.tankers.filter(item => item.vehicleId === account.resource)
-    const repairs = state.repairs.filter(item => item.crew === account.resource)
-    return {
-      ...safe, tankers, repairs,
-      shortages: safe.shortages.filter(item => tankers.some(tanker => tanker.incidentId === item.id)),
-      leaks: state.leaks.filter(item => repairs.some(repair => repair.leakId === item.id)),
-    }
-  }
-  return { ...safe, tankers: safe.tankers.filter(item => item.status === 'published') }
-}
-
-function json(res: ServerResponse, status: number, data: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
-  res.end(JSON.stringify(data))
-}
-
-async function readBody(req: IncomingMessage) {
-  if (req.headers['content-type']?.split(';')[0] !== 'application/json') throw new Error('Send JSON.')
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    size += chunk.length
-    if (size > 1_650_000) throw new Error('The request is too large.')
-    chunks.push(chunk)
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
-}
-
-function setCookie(res: ServerResponse, token: string, maxAge: number) {
-  const secure = process.env.NOU_SECURE_COOKIE === '1' ? '; Secure' : ''
-  res.setHeader('Set-Cookie', `noudilo_session=${token}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Strict${secure}`)
-}
-
-export function createApi() {
-  const db = openDatabase()
+  const service = createService(repository)
+  const app = Fastify({ bodyLimit: 1_650_000, logger: false, trustProxy: false, requestTimeout: 15_000 })
+  const events = new EventEmitter()
+  events.setMaxListeners(200)
+  const clients = new Set<ServerResponse>()
   const attempts = new Map<string, { until: number; count: number }>()
-  const resources = () => db.prepare("SELECT DISTINCT resource FROM accounts WHERE role = 'worker'").all().map(row => row.resource)
-
-  async function handle(req: IncomingMessage, res: ServerResponse) {
-    const path = req.url?.split('?')[0]
-    const token = /(?:^|;\s*)noudilo_session=([\w-]+)(?:;|$)/.exec(req.headers.cookie ?? '')?.[1] ?? ''
-    const account = getAccount(db, token)
-    function snapshot(forAccount = account) {
-      const state = readState(db)
-      return {
-        account: forAccount ?? null,
-        state: projectState(db, state, forAccount),
-        publicState: forAccount && forAccount.role !== 'resident' ? projectState(db, state) : undefined,
-        resources: forAccount?.role === 'coordinator' ? resources() : undefined,
-      }
+  const token = (cookie?: string) => /(?:^|;\s*)noudilo_session=([\w-]+)(?:;|$)/.exec(cookie ?? '')?.[1] ?? ''
+  const cookie = (value: string, age: number) => `noudilo_session=${value}; Max-Age=${age}; Path=/; HttpOnly; SameSite=Strict${process.env.NOU_SECURE_COOKIE === '1' ? '; Secure' : ''}`
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff')
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) throw new ServiceError(403, 'This request came from a different site.')
+      if (request.headers['sec-fetch-site'] === 'cross-site') throw new ServiceError(403, 'Use the NouDilo site to continue.')
+      if (!request.headers['content-type']?.startsWith('application/json')) throw new ServiceError(415, 'Send JSON.')
     }
-
-    if (req.method === 'GET' && path === '/api/state') return json(res, 200, snapshot())
-    if (req.method !== 'POST') return json(res, 404, { message: 'Endpoint unavailable.' })
-
-    const origin = req.headers.origin
-    if (origin && new URL(origin).host !== req.headers.host)
-      return json(res, 403, { message: 'This request came from a different site.' })
-    if (req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { message: 'Use the NouDilo site to continue.' })
-
-    const input = await readBody(req)
-    if (path === '/api/logout') {
-      revokeSession(db, token)
-      setCookie(res, '', 0)
-      return json(res, 200, { account: null, state: projectState(db, readState(db)) })
-    }
-
-    if (path === '/api/login' || path === '/api/register') {
-      const ip = req.socket.remoteAddress ?? ''
-      const now = Date.now()
-      for (const [key, item] of attempts) if (item.until <= now) attempts.delete(key)
-      const slot = attempts.get(ip) ?? { until: now + 60_000, count: 0 }
-      attempts.set(ip, slot)
-      if (++slot.count > 15) return json(res, 429, { message: 'Too many attempts. Try again in a minute.' })
-      const data = record(input)
-      const email = text(data.email, 160).toLowerCase()
-      const password = data.password
-      if (typeof password !== 'string' || !password || password.length > 128)
-        return json(res, 400, { message: 'Enter your email and password.' })
-      let next: Account | undefined
-      if (path === '/api/register') {
-        try { next = register(db, email, password, 'resident', null) }
-        catch (error) {
-          if (error instanceof Error && error.message.includes('UNIQUE')) return json(res, 409, { message: 'This email already has an account.' })
-          throw error
-        }
-      } else {
-        next = authenticate(db, email, password)
-        if (!next) return json(res, 401, { message: 'Email or password was incorrect.' })
-      }
-      revokeSession(db, token)
-      setCookie(res, createSession(db, next), 8 * 3600)
-      return json(res, 200, snapshot(next))
-    }
-
-    if (path !== '/api/actions') return json(res, 404, { message: 'Endpoint unavailable.' })
-    if (!account) return json(res, 401, { message: 'Sign in before continuing.' })
-    const action = readAction(input)
-    let notice: Notice | null
-    db.exec('BEGIN IMMEDIATE')
-    try {
-      const state = readState(db)
-      if (!canAct(account, action, state)) {
-        db.exec('ROLLBACK')
-        return json(res, 403, { message: 'Your account does not have permission for this operation.' })
-      }
-      const resource = action.type === 'assignCrew' ? action.crew : action.type === 'assignTanker' ? action.vehicleId : undefined
-      if (resource && !resources().includes(resource)) {
-        db.exec('ROLLBACK')
-        return json(res, 409, { message: 'This vehicle or crew needs an active worker account before assignment.' })
-      }
-      const result = reduceNouDilo({ state, notice: null }, action)
-      if (result.notice?.error) {
-        db.exec('ROLLBACK')
-        return json(res, 409, result.notice)
-      }
-      if (action.type === 'submitReport') db.prepare('INSERT INTO owners VALUES (?, ?)').run(action.report.id, account.id)
-      if (result.state.audit[0]) result.state.audit[0] = { ...result.state.audit[0], actor: account.email }
-      db.prepare('UPDATE operations SET document = ? WHERE id = 1').run(JSON.stringify(result.state))
-      notice = result.notice
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      throw error
-    }
-    return json(res, 200, { ...snapshot(), notice })
-  }
-
-  return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-    if (!req.url?.startsWith('/api/')) return next()
-    void handle(req, res).catch(error => {
-      if (res.headersSent || res.destroyed) return
-      const message = error instanceof Error ? error.message : ''
-      const internal = message.includes('SQLITE') || message.includes('constraint') || message.includes('database')
-      if (internal) console.error('NouDilo database operation failed:', message)
-      json(res, internal ? 500 : 400, { message: internal ? 'The service could not save this request.' : message || 'The request could not be read.' })
-    })
-  }
+  })
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ServiceError) return reply.code(error.status).send({ message: error.message })
+    const message = error instanceof Error ? error.message : 'The service could not complete this request.'
+    const internal = /SQLITE|ORA-|constraint|database|NJS-|DPI-/i.test(message)
+    if (internal) console.error('NouDilo persistence operation failed. Check server configuration and database availability.')
+    const status = (error as { statusCode?: number }).statusCode
+    return reply.code(internal ? 503 : status && status >= 400 && status < 500 ? status : 400).send({ message: internal ? 'The service could not save this request. Your details are still here; try again.' : message })
+  })
+  app.get('/api/health', async () => ({ status: 'ok', database: repository.kind, demo, telemetry: false }))
+  app.get('/api/state', async request => service.snapshot(await service.account(token(request.headers.cookie))))
+  app.get('/api/events', async (request, reply) => {
+    if (clients.size >= 100) return reply.code(503).send({ message: 'Use periodic refresh while the event service is busy.' })
+    reply.hijack()
+    const response = reply.raw
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' })
+    response.write('retry: 3000\n\n')
+    clients.add(response)
+    // Only revisions travel over this public channel; reads remain role-filtered.
+    const notify = () => response.write(`event: revision\ndata: ${Date.now()}\n\n`)
+    events.on('revision', notify)
+    const timer = setInterval(() => response.write(': keepalive\n\n'), 20_000)
+    request.raw.on('close', () => { clearInterval(timer); events.off('revision', notify); clients.delete(response) })
+  })
+  app.post('/api/logout', async (request, reply) => {
+    await service.logout(token(request.headers.cookie)); reply.header('Set-Cookie', cookie('', 0))
+    return service.snapshot()
+  })
+  for (const path of ['login', 'register'] as const) app.post(`/api/${path}`, async (request, reply) => {
+    const now = Date.now()
+    for (const [key, entry] of attempts) if (entry.until < now) attempts.delete(key)
+    const attempt = attempts.get(request.ip) ?? { until: now + 60_000, count: 0 }; attempts.set(request.ip, attempt)
+    if (++attempt.count > 15) throw new ServiceError(429, 'Too many attempts. Try again in a minute.')
+    const data = record(request.body); const email = text(data.email, 160).toLowerCase()
+    if (typeof data.password !== 'string' || data.password.length > 128 || !data.password) throw new ServiceError(400, 'Enter your email and password.')
+    const account = path === 'register' ? await provision(repository, email, data.password, 'resident', null) : await service.authenticate(email, data.password)
+    if (!account) throw new ServiceError(401, 'Email or password was incorrect.')
+    reply.header('Set-Cookie', cookie(await service.session(account, token(request.headers.cookie)), 8 * 3600))
+    return service.snapshot(account)
+  })
+  app.post('/api/demo-login', async (request, reply) => {
+    if (!demo || !/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(request.ip)) throw new ServiceError(404, 'This operation is unavailable.')
+    const role = text(record(request.body).role, 24)
+    const email = ({ resident: 'resident@demo.noudilo.test', resident2: 'neighbour@demo.noudilo.test', coordinator: 'coordinator@demo.noudilo.test', driver: 'driver@demo.noudilo.test', crew: 'crew@demo.noudilo.test' } as Record<string, string>)[role]
+    if (!email) throw new ServiceError(400, 'Choose a demonstration role.')
+    const account = await repository.read(async tx => { const [row] = await tx.rows('SELECT id,email,role,resource FROM accounts WHERE email = :email', { email }); return row ? publicAccount(row) : null })
+    if (!account) throw new ServiceError(503, 'The isolated demonstration is not configured.')
+    reply.header('Set-Cookie', cookie(await service.session(account, token(request.headers.cookie)), 8 * 3600))
+    return service.snapshot(account)
+  })
+  app.post('/api/actions', async request => {
+    const account = await service.account(token(request.headers.cookie))
+    if (!account) throw new ServiceError(401, 'Sign in before continuing.')
+    const key = request.headers['idempotency-key'] ?? randomUUID()
+    if (typeof key !== 'string' || !/^[\w-]{8,100}$/.test(key)) throw new ServiceError(400, 'Invalid request reference.')
+    const result = await service.apply(account, readAction(request.body), key)
+    if (!result.replayed) events.emit('revision')
+    return result
+  })
+  app.addHook('preClose', async () => { for (const response of clients) response.end(); clients.clear() })
+  app.addHook('onClose', async () => { events.removeAllListeners(); if (!options.repository) await repository.close() })
+  return app
 }

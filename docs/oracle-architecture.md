@@ -1,6 +1,8 @@
 # Oracle integration proposal
 
-The current NouDilo prototype uses an authenticated local API and SQLite for accounts, assignments, and reports. The proposed production architecture uses Oracle Autonomous AI Database as the system of record.
+The application now includes a Fastify API with selectable SQLite and Oracle adapters. The implemented runtime and runnable migration are documented in [runtime architecture](runtime-architecture.md) and `server/migrations/001-runtime.sql`. Live Oracle execution still requires an accessible Autonomous Database and server-side credentials.
+
+The remainder of this document and `oracle-schema.sql` describe a more granular future spatial architecture. They are not the schema applied by the current runtime migration.
 
 ## Service boundary
 

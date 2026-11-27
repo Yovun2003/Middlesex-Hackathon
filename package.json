@@ -4,30 +4,49 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node --env-file-if-exists=.env node_modules/vite/bin/vite.js",
     "check": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "account": "node server/account.ts"
+    "build": "tsc --noEmit && vite build && node scripts/compress-assets.mjs",
+    "preview": "node --env-file-if-exists=.env node_modules/vite/bin/vite.js preview",
+    "account": "node --env-file-if-exists=.env server/account.ts",
+    "start": "node --env-file-if-exists=.env server/index.ts",
+    "demo": "NOU_DATABASE=sqlite NOU_DEMO=1 NOU_DATA_DIR=.noudilo-demo vite --host 127.0.0.1",
+    "assets": "node scripts/generate-assets.mjs",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "migrate:oracle": "node --env-file-if-exists=.env server/migrate.ts",
+    "inventory": "node --env-file-if-exists=.env server/inventory.ts",
+    "check:performance": "node scripts/check-performance.mjs"
   },
   "dependencies": {
+    "@fastify/static": "^11.0.0",
     "@fontsource-variable/inter": "^5.2.6",
     "@fontsource-variable/manrope": "^5.2.7",
+    "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.4.0",
+    "@tailwindcss/vite": "^4.3.5",
+    "fastify": "^5.12.8",
     "gsap": "^3.13.0",
     "lucide-react": "0.545.0",
-    "maplibre-gl": "^5.13.0",
+    "maplibre-gl": "^6.19.0",
+    "oracledb": "^26.0.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "three": "^0.180.0"
+    "tailwindcss": "^4.3.5",
+    "three": "^0.180.0",
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.1",
+    "@playwright/test": "^1.65.1",
     "@types/node": "^24.0.0",
+    "@types/oracledb": "^26.0.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.9.0",
-    "vite": "^7.1.0"
+    "vite": "^7.1.0",
+    "vitest": "^5.1.2"
   }
 }

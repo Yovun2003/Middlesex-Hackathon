@@ -5,12 +5,16 @@ export type MapIncident = {
   town: string
   title: string
   tone: 'critical' | 'response' | 'leak' | 'verified'
+  coordinate?: Coordinate
 }
 
 export type MapProps = {
   incidents: MapIncident[]
   selectedId?: string
   onSelect: (id: string) => void
+  center?: Coordinate
+  pin?: Coordinate
+  onPick?: (point: Coordinate) => void
 }
 
 export const places = {
