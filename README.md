@@ -1,6 +1,6 @@
 # NouDilo
 
-A Mauritius water response application with one persistent 3D neighbourhood, resident reporting, coordinator operations, and assigned field-team workflows. The actual API, permissions, saved records, delivery review, and independent repair verification drive the same world state.
+A Mauritius water response application with one persistent 3D neighbourhood, resident reporting, coordinator operations, and assigned field-team workflows. The actual API, permissions, saved records, delivery review, and independent repair verification drive the same world
 
 ## Install and run
 
@@ -76,7 +76,7 @@ printf '%s\n' "$nou_password" | npm run account -- worker crew@example.test "Cen
 unset nou_password
 ```
 
-The local development fallback retains the established example fleet (`WT-04`, `WT-07`, `WT-09`) and crew names for compatibility. Oracle starts with zero inventory and requires explicit operational configuration. A vehicle or crew is assignable only after an associated worker account exists.
+The local development fallback retains the established example fleet (`WT-04`, `WT-07`, `WT-09`) and crew names for compatibility. Oracle starts with zero inventory and requires explicit operational configuration. A vehicle or crew is assignable only after an associated worker account exists
 
 ## Oracle Autonomous Database
 
@@ -89,7 +89,7 @@ The official `oracledb` Thin driver requires no local Oracle client installation
 
 The migration under `server/migrations/` is the runnable schema for this adapter. The older `docs/oracle-schema.sql` is a separate proposed, more granular spatial schema; do not apply it as the runtime migration. See [runtime architecture](docs/runtime-architecture.md) and [Oracle proposal](docs/oracle-architecture.md).
 
-Live Oracle execution requires credentials and network connectivity. Connection-stub tests do not prove a live Autonomous Database deployment. The local development adapter and end-to-end scenarios remain usable without Oracle.
+Live Oracle execution requires credentials and network connectivity. Connection-stub tests do not prove a live Autonomous Database deployment. The local development adapter and end-to-end scenarios remain usable without Oracle
 
 ## Quality checks
 
