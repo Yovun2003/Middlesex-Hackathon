@@ -39,7 +39,7 @@ export function SignIn({ audience, registerFirst, offline, signIn, onSuccess }: 
           <p>{staff
             ? 'Use the staff account provisioned for you. Workers see the jobs assigned to their vehicle or repair crew.'
             : 'Use a resident account to submit reports and follow your own cases. Anyone can open the public incident map.'}</p>
-          <a className="text-button" href="#water-map">View the public map</a>
+          <a className="text-button" href="#/map">View the public map</a>
         </div>
         <form className="account-form" onSubmit={submit} aria-label={register ? 'Create resident account' : 'Sign in'}>
           {offline && <p className="account-error" role="alert">The account service is unavailable. Open NouDilo through the Vite server.</p>}
