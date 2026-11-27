@@ -3,3 +3,10 @@ dist/
 *.local
 .DS_Store
 .noudilo/
+.noudilo-demo/
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+coverage/

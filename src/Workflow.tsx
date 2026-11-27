@@ -1,3 +1,4 @@
+import { LocationPicker } from './LocationPicker'
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import {
   BadgeCheck,
@@ -13,9 +14,11 @@ import {
   X,
 } from 'lucide-react'
 import {
-  CREWS,
-  FLEET,
+  crewsFor,
+  fleetFor,
   TOWNS,
+  REPORT_CONDITIONS,
+  REPORT_DURATIONS,
   availableWater,
   createReference,
   crewAvailable,
@@ -32,8 +35,11 @@ import {
   type ReportKind,
   type TankerAssignment,
   type Tone,
+  type State,
 } from './model'
 import { Stage } from './Stage'
+import { assessPriority } from './priority'
+import { useWorld, focusIncident } from './world/state'
 import './workflow.css'
 
 export type Visuals = {
@@ -41,10 +47,7 @@ export type Visuals = {
 }
 
 type ResidentMode = 'shortage' | 'leak' | 'track'
-export const reportConditions = {
-  shortage: ['No running water', 'Low pressure'],
-  leak: ['Small trickle', 'Continuous flow', 'Heavy flow'],
-}
+export const reportConditions = REPORT_CONDITIONS
 const tankerLabels = {
   assigned: 'Assigned',
   accepted: 'Accepted',
@@ -52,6 +55,7 @@ const tankerLabels = {
   arrived: 'Arrived',
   delivered: 'Awaiting publication',
   published: 'Delivery published',
+  declined: 'Declined',
 } as const
 const repairLabels = {
   assigned: 'Crew assigned',
@@ -60,19 +64,22 @@ const repairLabels = {
   verified: 'Repair verified',
 } as const
 const leakStages: Record<Leak['status'], number> = {
-  verified: 1,
-  assigned: 2,
+  verified: 0,
+  assigned: 1,
   'in-progress': 3,
   'awaiting-verification': 5,
   repaired: 6,
 }
 
 const tankerPhases: Record<TankerAssignment['status'], number> = {
-  assigned: 0, accepted: .12, 'en-route': .48, arrived: .88, delivered: 1, published: 1,
+  assigned: 0, accepted: 0, 'en-route': .48, arrived: .88, delivered: 1, published: 1, declined: 0,
 }
 
-function TankerOperation({ assignment, town }: { assignment?: TankerAssignment; town: string }) {
-  return <Stage visual="tanker" title={`${town} · Tanker response`} phase={assignment ? tankerPhases[assignment.status] : 0}
+function TankerOperation({ assignment, town, state }: { assignment?: TankerAssignment; town: string; state: State }) {
+  if (!assignment) return <Stage visual="tap" town={town} condition="No running water" title={`${town} · Community shortage`} phase={0} status="Awaiting an authorised response">Review the assessed need and available resources before dispatching a tanker.</Stage>
+  const vehicle = fleetFor(state).find(v => v.id === assignment.vehicleId)
+  const depotTown = TOWNS.find(t => vehicle?.name.includes(t)) ?? town
+  return <Stage depotTown={depotTown} depotLabel={vehicle?.name ?? 'Illustrative dispatch depot'} visual="tanker" title={`${town} · Tanker response`} phase={assignment ? tankerPhases[assignment.status] : 0}
     focus={assignment?.status === 'published' ? .24 : 0}
     status={assignment ? tankerLabels[assignment.status] : 'Awaiting assignment'}>
     {assignment?.actualLitres !== undefined
@@ -81,8 +88,8 @@ function TankerOperation({ assignment, town }: { assignment?: TankerAssignment; 
   </Stage>
 }
 
-function PipeOperation({ town, status, label }: { town: string; status: Leak['status']; label: string }) {
-  return <Stage visual="pipe" title={`${town} · Pipe cutaway`} phase={leakStages[status] / 6} status={label}
+function PipeOperation({ town, status, label, waterRestoredAt }: { town: string; status: Leak['status']; label: string; waterRestoredAt?: string }) {
+  return <Stage destination={waterRestoredAt ? 'WaterShortageScene' : undefined} condition={waterRestoredAt ? 'Supply restored' : undefined} visual="pipe" title={`${town} · Pipe cutaway`} phase={leakStages[status] / 6} status={label}
     focus={status === 'repaired' ? .35 : 0}>
     {status === 'repaired' ? 'The coordinator verified the repair and published the outcome.' :
       status === 'awaiting-verification' ? 'The crew submitted the repair. It is waiting for an independent check.' :
@@ -92,14 +99,15 @@ function PipeOperation({ town, status, label }: { town: string; status: Leak['st
   </Stage>
 }
 
-function ReportStage({ kind, condition, town, step }: {
+function ReportStage({ kind, condition, town, step, duration }: {
   kind: ReportKind
   condition: string
   town?: string
+  duration?: string
   step: 'details' | 'review' | 'complete'
 }) {
   const shortage = kind === 'shortage'
-  return <Stage visual={shortage ? 'tap' : 'pipe'} title={town ? `${town} · Report` : shortage ? 'At the tap' : 'Under the road'}
+  return <Stage destination={step === 'complete' && shortage ? 'ResidentVillage' : undefined} town={town} duration={duration} condition={condition} visual={shortage ? 'tap' : 'pipe'} title={town ? `${town} · Report` : shortage ? 'At the tap' : 'Under the road'}
     phase={shortage && condition === 'Low pressure' ? .28 : 0}
     strength={!shortage ? condition === 'Heavy flow' ? 1 : condition === 'Continuous flow' ? .62 : .25 : undefined}
     focus={step === 'review' ? .32 : step === 'complete' ? .58 : 0}
@@ -197,6 +205,9 @@ function EvidencePreview({ evidence }: { evidence?: Evidence }) {
 
 function ResidentTimeline({ store, report, showScene = false }: { store: NouDiloStore; report: Report; showScene?: boolean }) {
   const incident = publicIncidents(store.state).find((item) => item.id === report.incidentId)
+  const response = incident?.type === 'shortage'
+    ? store.state.tankers.find(item => item.incidentId === incident.id && item.status !== 'declined')
+    : undefined
   const timeline: { title: string; detail: string }[] = [
     { title: 'Report received', detail: displayDate(report.createdAt) },
   ]
@@ -223,6 +234,10 @@ function ResidentTimeline({ store, report, showScene = false }: { store: NouDilo
         detail: 'A coordinator approved a tanker for the community.',
       })
     }
+    if (response && ['accepted', 'en-route', 'arrived', 'delivered', 'published'].includes(response.status)) timeline.push({ title: 'Driver accepted', detail: 'The assigned driver accepted the task.' })
+    if (response && ['en-route', 'arrived', 'delivered', 'published'].includes(response.status)) timeline.push({ title: 'Response underway', detail: 'The driver recorded departure. The world illustrates the milestone; it is not GPS tracking.' })
+    if (response && ['arrived', 'delivered', 'published'].includes(response.status)) timeline.push({ title: 'Arrival recorded', detail: 'The driver confirmed arrival at the community distribution point.' })
+    if (response?.status === 'delivered') timeline.push({ title: 'Outcome recorded; review pending', detail: 'The driver submitted the delivery record. Actual litres appear after coordinator approval.' })
     if (incident.actualLitres !== undefined) {
       const detail =
         incident.actualLitres > 0
@@ -232,7 +247,7 @@ function ResidentTimeline({ store, report, showScene = false }: { store: NouDilo
     }
     if (incident.status === 'restored')
       timeline.push({
-        title: 'Regular supply confirmed',
+        title: 'Water restored',
         detail: 'The coordinator verified normal supply recovery.',
       })
   }
@@ -255,9 +270,9 @@ function ResidentTimeline({ store, report, showScene = false }: { store: NouDilo
         detail: 'The coordinator confirmed the repair at this location.',
       })
   }
-  const response = incident?.type === 'shortage'
-    ? store.state.tankers.find(item => item.incidentId === incident.id)
-    : undefined
+  const restored = store.state.leaks.find(l => l.id === incident?.id)?.waterRestoredAt
+  if (restored) timeline.push({ title: 'Water restored', detail: `The coordinator confirmed water at the affected home. ${displayDate(restored)}` })
+  const lastUpdate = report.updatedAt ?? restored ?? response?.submittedAt ?? report.createdAt
   return (
     <section className="wf-track-detail" aria-label={`Timeline for ${report.id}`}>
       <div className="wf-card-head">
@@ -269,10 +284,15 @@ function ResidentTimeline({ store, report, showScene = false }: { store: NouDilo
         </div>
         {incident && <Status tone={incident.tone}>{incident.label}</Status>}
       </div>
-      {showScene && (incident?.type === 'leak'
-        ? <PipeOperation town={report.town} status={incident.status as Leak['status']} label={incident.label} />
-        : response ? <TankerOperation assignment={response} town={report.town} />
+      {showScene && (incident?.type === 'shortage' && incident.status === 'restored'
+        ? <Stage visual="tap" town={report.town} condition="Supply restored" phase={1} title="Household water supply" status="Water restored">The coordinator confirmed normal supply at the affected home.</Stage>
+        : incident?.type === 'leak'
+        ? <PipeOperation town={report.town} status={incident.status as Leak['status']} label={incident.label} waterRestoredAt={restored} />
+        : response ? <TankerOperation assignment={response} town={report.town} state={store.state} />
         : <ReportStage kind={report.type} condition={report.condition} town={report.town} step="complete" />)}
+      <SavedLocation point={report.coordinates} />
+      <p className="wf-muted">Last update: {displayDate(lastUpdate)}</p>
+      {response && <p className="wf-callout">{response.status === 'delivered' || response.status === 'published' ? 'Water delivered' : response.status === 'arrived' ? 'Tanker arrived' : response.status === 'en-route' ? 'Tanker on the way' : 'Tanker assigned'} · No arrival estimate available.</p>}
       <ol className="wf-timeline">
         {timeline.map((step) => (
           <li key={step.title}>
@@ -299,12 +319,12 @@ function TrackReports({ store, reference }: { store: NouDiloStore; reference?: s
     const id = query.trim().toUpperCase()
     const match = reports.find((item) => item.id === id)
     setSelected(match?.id)
-    setMessage(match ? '' : 'No report with that reference was found in this demo session.')
+    setMessage(match ? '' : 'No report with that reference was found in your account.')
   }
   return (
     <>
       <p className="wf-muted">
-        See verification, assignments and approved updates for reports submitted in this demo session.
+        See verification, assignments and approved updates for reports submitted in your account.
       </p>
       <form className="wf-inline-form" onSubmit={search}>
         <label>
@@ -361,12 +381,16 @@ export function ResidentDialog({
   onClose,
   initialTown,
   initialCondition,
+  sceneHidden,
+  onToggleScene,
 }: {
   mode: ResidentMode
   store: NouDiloStore
   onClose: () => void
   initialTown?: string
   initialCondition?: string
+  sceneHidden?: boolean
+  onToggleScene?: () => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -376,9 +400,12 @@ export function ResidentDialog({
   const [town, setTown] = useState(initialTown && TOWNS.includes(initialTown) ? initialTown : '')
   const [condition, setCondition] = useState(initialCondition ?? '')
   const [duration, setDuration] = useState('')
+  const [additionalNeeds, setAdditionalNeeds] = useState(false)
+  const paused = useWorld(s => s.paused)
   const [households, setHouseholds] = useState('1')
   const [requestedLitres, setRequestedLitres] = useState('')
   const [location, setLocation] = useState('')
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number }>()
   const [description, setDescription] = useState('')
   const [evidence, setEvidence] = useState<Evidence>()
   const [reference, setReference] = useState<string>()
@@ -415,6 +442,7 @@ export function ResidentDialog({
       report: {
         id,
         type: mode,
+        coordinates,
         town,
         condition,
         duration: shortage ? duration : undefined,
@@ -422,6 +450,7 @@ export function ResidentDialog({
         requestedLitres: shortage && requestedLitres ? Number(requestedLitres) : undefined,
         location: shortage ? undefined : location.trim(),
         description: description.trim(),
+        additionalNeeds,
         evidence,
       },
     })
@@ -431,6 +460,7 @@ export function ResidentDialog({
       className={`wf-dialog${step !== 'track' ? ' wf-dialog--staged' : ''}`}
       ref={dialog}
       aria-labelledby="wf-dialog-title"
+      aria-busy={store.pending}
       onCancel={(event) => {
         event.preventDefault()
         onClose()
@@ -450,8 +480,9 @@ export function ResidentDialog({
             <X size={22} aria-hidden="true" />
           </button>
         </div>
+        {onToggleScene && <button className="text-button" type="button" aria-expanded={!sceneHidden} onClick={onToggleScene}>{sceneHidden?'Show example':'Hide example'}</button>}
         <div className={step === 'track' ? undefined : 'wf-report-layout'}>
-          {step !== 'track' && mode !== 'track' && <ReportStage kind={mode} condition={condition} town={town} step={step} />}
+          {step !== 'track' && mode !== 'track' && <ReportStage kind={mode} condition={condition} duration={duration} town={town} step={step} />}
           <div>
         {step === 'details' && mode !== 'track' && (
           <form
@@ -475,6 +506,7 @@ export function ResidentDialog({
                 ))}
               </select>
             </label>
+            <LocationPicker town={town} value={coordinates} onChange={setCoordinates} onTown={setTown} />
             <label>
               {shortage ? 'What are you experiencing?' : 'How severe is the leak?'}
               <select required value={condition} onChange={(event) => setCondition(event.target.value)}>
@@ -490,7 +522,7 @@ export function ResidentDialog({
                   How long?
                   <select value={duration} onChange={(event) => setDuration(event.target.value)} required>
                     <option value="">Choose a duration</option>
-                    {['Under 12 hours', '12–24 hours', '24–48 hours', 'Over 48 hours'].map((item) => (
+                    {REPORT_DURATIONS.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
@@ -531,6 +563,7 @@ export function ResidentDialog({
                 />
               </label>
             )}
+            {shortage && <label className="wf-support-check"><input type="checkbox" checked={additionalNeeds} onChange={event => setAdditionalNeeds(event.target.checked)} /><span>Someone in the affected household needs additional support <small>Optional. Do not include personal medical details.</small></span></label>}
             <label>
               Additional details <small>Optional</small>
               <textarea
@@ -555,6 +588,7 @@ export function ResidentDialog({
                 <dt>Locality</dt>
                 <dd>{town}</dd>
               </div>
+              {coordinates && <div><dt>Selected map pin</dt><dd>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</dd></div>}
               <div>
                 <dt>{shortage ? 'Water supply' : 'Leak severity'}</dt>
                 <dd>{condition}</dd>
@@ -605,8 +639,8 @@ export function ResidentDialog({
               <button className="wf-button wf-button--quiet" type="button" onClick={() => setStep('details')}>
                 Edit details
               </button>
-              <button className="wf-button" type="button" onClick={submit}>
-                Submit report
+              <button className="wf-button" type="button" onClick={submit} disabled={store.pending}>
+                {store.pending ? 'Sending report…' : store.notice?.error ? 'Try again' : 'Send report'}
               </button>
             </div>
           </div>
@@ -725,10 +759,9 @@ function ReviewReport({
   return (
     <form
       className="wf-subcard wf-form"
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault()
-        onReview()
-        store.dispatch({ type: 'verifyReport', reportId: report.id, estimatedLitres: Number(needs) })
+        if (await store.dispatch({ type: 'verifyReport', reportId: report.id, estimatedLitres: Number(needs) })) onReview()
       }}
     >
       <div className="wf-card-head">
@@ -776,8 +809,10 @@ function ReviewReport({
           </div>
         )}
       </dl>
+      {report.coordinates && <p><a href={`https://www.openstreetmap.org/?mlat=${report.coordinates.latitude}&mlon=${report.coordinates.longitude}#map=18/${report.coordinates.latitude}/${report.coordinates.longitude}`} target="_blank" rel="noreferrer">Open reported location on map</a></p>}
       {report.description && <p>{report.description}</p>}
       <EvidencePreview evidence={report.evidence} />
+      <ul className="priority-reasons" aria-label="Priority assessment reasons"><li>Suggested priority: {assessPriority([report]).priority}. Complaint count is not a priority score.</li>{assessPriority([report]).reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
       {candidate && (
         <p className="wf-callout">
           <MapPin size={18} aria-hidden="true" /> Verify and retain the individual report under {candidate.id}
@@ -833,7 +868,7 @@ function GroupedReports({ store, id }: { store: NouDiloStore; id: string }) {
 }
 
 function DispatchForm({ incident, store }: { incident: PublicIncident; store: NouDiloStore }) {
-  const vehicles = FLEET.filter((item) => vehicleAvailable(store.state, item.id) && (store.resources?.includes(item.id) ?? true))
+  const vehicles = fleetFor(store.state).filter((item) => vehicleAvailable(store.state, item.id) && (store.resources?.includes(item.id) ?? true))
   const [vehicle, setVehicle] = useState(vehicles[0]?.id ?? '')
   const limit = Math.min(
     availableWater(store.state),
@@ -922,18 +957,21 @@ function ConfirmationForm({
   label,
   button,
   onSubmit,
+  confirmWater = false,
 }: {
   label: string
   button: string
-  onSubmit: (value: string) => void
+  confirmWater?: boolean
+  onSubmit: (value: string, waterRestored?: boolean) => void
 }) {
   const [value, setValue] = useState('')
+  const [waterRestored, setWaterRestored] = useState(false)
   return (
     <form
       className="wf-form"
       onSubmit={(event) => {
         event.preventDefault()
-        if (value.trim()) onSubmit(value)
+        if (value.trim()) onSubmit(value, waterRestored)
       }}
     >
       <label>
@@ -946,6 +984,7 @@ function ConfirmationForm({
           maxLength={600}
         />
       </label>
+      {confirmWater && <label className="wf-support-check"><input type="checkbox" checked={waterRestored} onChange={e => setWaterRestored(e.target.checked)} /> I also confirmed water is flowing at the affected home</label>}
       <div>
         <button className="wf-button" type="submit">
           {button}
@@ -956,7 +995,7 @@ function ConfirmationForm({
 }
 
 function CrewForm({ incident, store }: { incident: PublicIncident; store: NouDiloStore }) {
-  const crews = CREWS.filter((item) => crewAvailable(store.state, item) && (store.resources?.includes(item) ?? true))
+  const crews = crewsFor(store.state).filter((item) => crewAvailable(store.state, item) && (store.resources?.includes(item) ?? true))
   const [crew, setCrew] = useState(crews[0] ?? '')
   if (!crews.length) return <p className="wf-callout">No provisioned crew is available for a new work order.</p>
   return (
@@ -991,7 +1030,7 @@ function CoordinatorResponse({
   incident: PublicIncident
   store: NouDiloStore
 }) {
-  const tanker = store.state.tankers.find((item) => item.incidentId === incident.id)
+  const tanker = store.state.tankers.find((item) => item.incidentId === incident.id && item.status !== 'declined')
   const repair = store.state.repairs.find((item) => item.leakId === incident.id)
   if (incident.type === 'shortage')
     return (
@@ -1004,7 +1043,7 @@ function CoordinatorResponse({
             </div>
             <Truck size={22} aria-hidden="true" />
           </div>
-          <TankerOperation assignment={tanker} town={incident.town} />
+          {incident.status === 'restored' ? <Stage visual="tap" town={incident.town} condition="Supply restored" phase={1} title="Household supply" status="Water restored">The coordinator confirmed regular supply.</Stage> : <TankerOperation assignment={tanker} town={incident.town} state={store.state} />}
           {incident.status === 'critical' && <DispatchForm incident={incident} store={store} />}
           {tanker && (
             <>
@@ -1085,7 +1124,7 @@ function CoordinatorResponse({
           </div>
           <Wrench size={22} aria-hidden="true" />
         </div>
-        <PipeOperation town={incident.town} status={incident.status as Leak['status']} label={incident.label} />
+        <PipeOperation town={incident.town} status={incident.status as Leak['status']} label={incident.label} waterRestoredAt={store.state.leaks.find(l => l.id === incident.id)?.waterRestoredAt} />
         {incident.status === 'verified' && <CrewForm incident={incident} store={store} />}
         {repair && (
           <>
@@ -1120,7 +1159,8 @@ function CoordinatorResponse({
               <ConfirmationForm
                 label="Independent repair verification finding"
                 button="Verify and publish repair"
-                onSubmit={(evidence) => store.dispatch({ type: 'verifyRepair', id: repair.id, evidence })}
+                confirmWater
+                onSubmit={(evidence, waterRestored) => store.dispatch({ type: 'verifyRepair', id: repair.id, evidence, waterRestored })}
               />
             )}
             
@@ -1141,7 +1181,7 @@ function ResourceBoard({ store }: { store: NouDiloStore }) {
           allocation
         </p>
         <div className="wf-list">
-          {FLEET.map((vehicle) => (
+          {fleetFor(store.state).map((vehicle) => (
             <div className="wf-list-row" key={vehicle.id}>
               <div>
                 <strong>
@@ -1161,7 +1201,7 @@ function ResourceBoard({ store }: { store: NouDiloStore }) {
       <section className="wf-card">
         <h3>Maintenance crew availability</h3>
         <div className="wf-list">
-          {CREWS.map((crew) => (
+          {crewsFor(store.state).map((crew) => (
             <div className="wf-list-row" key={crew}>
               <strong>{crew}</strong>
               <Status tone={crewAvailable(store.state, crew) ? 'green' : 'amber'}>
@@ -1262,7 +1302,7 @@ export function Coordinator({
   const selected = incidents.find((incident) => incident.id === selectedId) ?? incidents[0]
   const pending = store.state.reports.filter((item) => item.status !== 'verified').length
   const assigned = store.state.tankers.filter(
-    (item) => !['delivered', 'published'].includes(item.status),
+    (item) => !['delivered', 'published', 'declined'].includes(item.status),
   ).length
   const tabs = [
     { id: 'register', label: 'Incident register' },
@@ -1414,6 +1454,7 @@ export function Coordinator({
                       </div>
                     )}
                   </dl>
+                  <ul className="priority-reasons" aria-label="Community priority reasons">{assessPriority(linkedReports(store.state, selected.id).filter(r => r.status === 'verified')).reasons.map(reason => <li key={reason}>{reason}</li>)}<li>Priority combines duration, impact, support needs, and reported severity; it is not based on complaint count alone.</li></ul>
                 </section>
                 <CoordinatorResponse
                   key={selected.id}
@@ -1431,6 +1472,10 @@ export function Coordinator({
   )
 }
 
+function SavedLocation({ point }: { point?: { latitude: number; longitude: number } }) {
+  return point ? <p><a className="text-button" href={`https://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=18/${point.latitude}/${point.longitude}`} target="_blank" rel="noreferrer">Open reported location on map</a></p> : null
+}
+
 function TankerTask({
   item,
   store,
@@ -1439,7 +1484,7 @@ function TankerTask({
   store: NouDiloStore
 }) {
   const incident = store.state.shortages.find((row) => row.id === item.incidentId)
-  const vehicle = FLEET.find((row) => row.id === item.vehicleId)
+  const vehicle = fleetFor(store.state).find((row) => row.id === item.vehicleId)
   const [quantity, setQuantity] = useState(String(item.approvedLitres))
   const [showProblem, setShowProblem] = useState(false)
   const steps = {
@@ -1463,7 +1508,7 @@ function TankerTask({
           </div>
           <Status tone={item.status === 'published' ? 'green' : 'amber'}>{tankerLabels[item.status]}</Status>
         </div>
-        <TankerOperation assignment={item} town={incident?.town ?? 'Distribution point'} />
+        <SavedLocation point={item.coordinates} /><TankerOperation assignment={item} town={incident?.town ?? 'Distribution point'} state={store.state} />
         <dl className="wf-facts">
           <div>
             <dt>Distribution point</dt>
@@ -1493,6 +1538,8 @@ function TankerTask({
             </button>
           </div>
         )}
+        {item.status === 'assigned' && <details className="decline-assignment"><summary>Decline this assignment</summary><ConfirmationForm label="Reason for declining" button="Confirm decline" onSubmit={reason => { void store.dispatch({ type: 'declineTanker', id: item.id, reason }) }} /></details>}
+        {item.status === 'declined' && <p className="wf-callout">This assignment was declined. The coordinator can arrange a new response.</p>}
         {item.status === 'arrived' && (
           <form
             className="wf-form"
@@ -1538,7 +1585,7 @@ function TankerTask({
             ))}
           </ul>
         )}
-        {!['delivered', 'published'].includes(item.status) && (
+        {!['delivered', 'published', 'declined'].includes(item.status) && (
           <div>
             <button
               className="wf-button wf-button--quiet"
@@ -1551,7 +1598,7 @@ function TankerTask({
             </button>
           </div>
         )}
-        {showProblem && !['delivered', 'published'].includes(item.status) && (
+        {showProblem && !['delivered', 'published', 'declined'].includes(item.status) && (
           <div id="wf-driver-problem">
             <ConfirmationForm
               label="Describe the problem"
@@ -1569,7 +1616,7 @@ function TankerTask({
           <div>
             <h3>Route and destination</h3>
             <p className="wf-muted">
-              Use your dispatch instructions and check vehicle restrictions before departing.
+              Use approved dispatch instructions and check vehicle restrictions before departing. The world’s route is illustrative and is not safe navigation guidance. Record progress only when safely parked.
             </p>
           </div>
           <MapPin size={22} aria-hidden="true" />
@@ -1613,7 +1660,7 @@ function RepairTask({
           </div>
           <Status tone={item.status === 'verified' ? 'green' : 'amber'}>{repairLabels[item.status]}</Status>
         </div>
-        <PipeOperation town={leak.town} status={leak.status} label={repairLabels[item.status]} />
+        <SavedLocation point={item.coordinates} /><PipeOperation town={leak.town} status={leak.status} label={repairLabels[item.status]} />
         <dl className="wf-facts">
           <div>
             <dt>Location</dt>

@@ -1,4 +1,7 @@
-export const TOWNS = [
+import { places } from './geo.ts'
+import { assessPriority } from './priority.ts'
+
+export const TOWNS = [...new Set([...Object.keys(places), ...[
   'Beau Bassin',
   'Bambous',
   'Curepipe',
@@ -11,9 +14,11 @@ export const TOWNS = [
   'Rose Hill',
   'Souillac',
   'Vacoas',
-].sort((a, b) => a.localeCompare(b))
+]])].sort((a, b) => a.localeCompare(b))
 
 export type ReportKind = 'shortage' | 'leak'
+export const REPORT_CONDITIONS = { shortage: ['No running water', 'Low pressure'], leak: ['Small trickle', 'Continuous flow', 'Heavy flow'] }
+export const REPORT_DURATIONS = ['Under 12 hours', '12–24 hours', '24–48 hours', 'Over 48 hours']
 export type Tone = 'red' | 'amber' | 'blue' | 'green'
 export type Evidence = { name: string; preview?: string }
 export type Report = {
@@ -23,11 +28,14 @@ export type Report = {
   condition: string
   duration?: string
   households?: number
+  coordinates?: { latitude: number; longitude: number }
   requestedLitres?: number
+  additionalNeeds?: boolean
   location?: string
   description: string
   evidence?: Evidence
   createdAt: string
+  updatedAt?: string
   source: 'resident' | 'sample'
   status: 'received' | 'linked' | 'verified'
   incidentId?: string
@@ -43,6 +51,7 @@ export type Shortage = {
   summary: string
 }
 export type Leak = {
+  waterRestoredAt?: string
   id: string
   town: string
   status: 'verified' | 'assigned' | 'in-progress' | 'awaiting-verification' | 'repaired'
@@ -51,17 +60,19 @@ export type Leak = {
   summary: string
 }
 export type TankerAssignment = {
+  coordinates?: { latitude: number; longitude: number }
   id: string
   incidentId: string
   vehicleId: string
   approvedLitres: number
   actualLitres?: number
-  status: 'assigned' | 'accepted' | 'en-route' | 'arrived' | 'delivered' | 'published'
+  status: 'assigned' | 'accepted' | 'en-route' | 'arrived' | 'delivered' | 'published' | 'declined'
   destination: string
   issues: string[]
   submittedAt?: string
 }
 export type RepairOrder = {
+  coordinates?: { latitude: number; longitude: number }
   id: string
   leakId: string
   crew: string
@@ -88,6 +99,7 @@ export type State = {
   repairs: RepairOrder[]
   audit: AuditEvent[]
   notices: WaterNotice[]
+  inventory?: { waterAvailable: number; fleet: Array<{ id: string; name: string; capacity: number }>; crews: string[] }
 }
 
 export const FLEET = [
@@ -97,6 +109,8 @@ export const FLEET = [
 ]
 export const CREWS = ['Central maintenance crew', 'Northern maintenance crew', 'Eastern maintenance crew']
 export const WATER_AVAILABLE = 28_000
+export const fleetFor = (state: State) => state.inventory?.fleet ?? FLEET
+export const crewsFor = (state: State) => state.inventory?.crews ?? CREWS
 
 export type PublicIncident = {
   id: string
@@ -125,7 +139,7 @@ export function publicIncidents(state: State): PublicIncident[] {
     )
     const details = {
       critical: {
-        label: 'Critical shortage',
+        label: incident.priority === 'Critical' ? 'Critical shortage' : 'Water shortage',
         tone: 'red',
         summary:
           delivery?.actualLitres === 0
@@ -198,14 +212,14 @@ export function formatLitres(amount: number) {
 
 export function availableWater(state: State) {
   return (
-    WATER_AVAILABLE -
-    state.tankers.reduce((sum, order) => sum + (order.actualLitres ?? order.approvedLitres), 0)
+    (state.inventory?.waterAvailable ?? WATER_AVAILABLE) -
+    state.tankers.filter(order => order.status !== 'declined').reduce((sum, order) => sum + (order.actualLitres ?? order.approvedLitres), 0)
   )
 }
 
 export function vehicleAvailable(state: State, id: string) {
   return !state.tankers.some(
-    (order) => order.vehicleId === id && !['delivered', 'published'].includes(order.status),
+    (order) => order.vehicleId === id && !['delivered', 'published', 'declined'].includes(order.status),
   )
 }
 
@@ -226,6 +240,7 @@ export type Action =
       destination: string
     }
   | { type: 'advanceTanker'; id: string; step: 'accepted' | 'en-route' | 'arrived' }
+  | { type: 'declineTanker'; id: string; reason: string }
   | { type: 'recordProblem'; id: string; detail: string }
   | { type: 'recordDelivery'; id: string; actualLitres: number }
   | { type: 'publishDelivery'; id: string }
@@ -234,7 +249,7 @@ export type Action =
   | { type: 'startRepair'; id: string }
   | { type: 'inspectRepair'; id: string; inspection: string; evidence?: Evidence }
   | { type: 'submitRepair'; id: string; work: string; evidence?: Evidence }
-  | { type: 'verifyRepair'; id: string; evidence: string }
+  | { type: 'verifyRepair'; id: string; evidence: string; waterRestored?: boolean }
   | { type: 'publishNotice'; town: string; text: string }
   | { type: 'dismissNotice' }
 
@@ -271,7 +286,7 @@ export function reduceNouDilo(
     message = note,
   ): Snapshot {
     const event = { id: `AUD-${suffix}`, subjectId, role, note, at }
-    return { state: { ...next, audit: [event, ...next.audit] }, notice: { message, error: false } }
+    return { state: { ...next, reports: next.reports.map(report => report.id === subjectId || report.incidentId === subjectId ? { ...report, updatedAt: at } : report), audit: [event, ...next.audit] }, notice: { message, error: false } }
   }
   switch (action.type) {
     case 'dismissNotice':
@@ -282,14 +297,14 @@ export function reduceNouDilo(
         return fail(state, 'This report was already submitted.')
       if (
         !TOWNS.includes(report.town) ||
-        !report.condition.trim() ||
+        !REPORT_CONDITIONS[report.type].includes(report.condition) ||
         (report.type === 'leak' && !report.location?.trim())
       ) {
         return fail(state, 'Complete the report details before submitting.')
       }
       if (
         report.type === 'shortage' &&
-        (!report.duration ||
+        (!report.duration || !REPORT_DURATIONS.includes(report.duration) ||
           !Number.isInteger(report.households) ||
           (report.households ?? 0) < 1 ||
           (report.households ?? 0) > 200)
@@ -326,12 +341,14 @@ export function reduceNouDilo(
         return fail(state, 'This report is unavailable for verification.')
       let next = state
       let incidentId = report.incidentId
+      const assessment = assessPriority([...state.reports.filter(r => r.status === 'verified' && r.town === report.town && r.type === report.type), report])
       if (report.type === 'shortage') {
         const incident = state.shortages.find(
           (item) => item.town === report.town && item.status !== 'restored',
         )
         if (incident) {
           incidentId = incident.id
+          next = { ...next, shortages: replace(state.shortages, { ...incident, priority: assessment.priority, households: Math.max(incident.households, assessment.households) }) }
         } else {
           const estimatedLitres = action.estimatedLitres ?? 0
           if (!Number.isInteger(estimatedLitres) || estimatedLitres < 1)
@@ -344,7 +361,7 @@ export function reduceNouDilo(
                 id: incidentId,
                 town: report.town,
                 status: 'critical',
-                priority: 'Critical',
+                priority: assessment.priority,
                 households: report.households ?? 1,
                 estimatedLitres,
                 summary: 'A community water shortage has been verified by the coordinator.',
@@ -373,7 +390,7 @@ export function reduceNouDilo(
                 town: report.town,
                 status: 'verified',
                 location,
-                priority: report.condition === 'Heavy flow' ? 'Critical' : 'High',
+                priority: assessment.priority,
                 summary: `A public water leak has been verified in ${report.town}.`,
               },
               ...state.leaks,
@@ -386,7 +403,7 @@ export function reduceNouDilo(
     }
     case 'assignTanker': {
       const incident = state.shortages.find((row) => row.id === action.incidentId)
-      const vehicle = FLEET.find((item) => item.id === action.vehicleId)
+      const vehicle = fleetFor(state).find((item) => item.id === action.vehicleId)
       if (!incident || incident.status !== 'critical')
         return fail(state, 'This shortage already has an active or completed response.')
       if (!vehicle || !vehicleAvailable(state, vehicle.id))
@@ -418,6 +435,12 @@ export function reduceNouDilo(
         'Coordinator',
         `Approved ${formatLitres(tanker.approvedLitres)} and assigned ${vehicle.id} to ${incident.town}.`,
       )
+    }
+    case 'declineTanker': {
+      const tanker = state.tankers.find(row => row.id === action.id)
+      const incident = state.shortages.find(row => row.id === tanker?.incidentId)
+      if (!tanker || !incident || tanker.status !== 'assigned' || !action.reason.trim()) return fail(state, 'Only an unaccepted assignment can be declined; enter a reason.')
+      return log({ ...state, tankers: replace(state.tankers, { ...tanker, status: 'declined', issues: [...tanker.issues, action.reason.trim()] }), shortages: replace(state.shortages, { ...incident, status: 'critical' }) }, incident.id, 'Tanker driver', `Driver declined the assignment: ${action.reason.trim()}`, 'Assignment declined. The coordinator can dispatch another available vehicle.')
     }
     case 'advanceTanker': {
       const tanker = state.tankers.find((row) => row.id === action.id)
@@ -455,7 +478,7 @@ export function reduceNouDilo(
       const tanker = state.tankers.find((row) => row.id === action.id)
       if (!tanker || tanker.status !== 'arrived')
         return fail(state, 'Confirm arrival before recording the delivery.')
-      const capacity = FLEET.find((vehicle) => vehicle.id === tanker.vehicleId)?.capacity ?? 0
+      const capacity = fleetFor(state).find((vehicle) => vehicle.id === tanker.vehicleId)?.capacity ?? 0
       if (
         !Number.isInteger(action.actualLitres) ||
         action.actualLitres < 0 ||
@@ -521,7 +544,7 @@ export function reduceNouDilo(
     }
     case 'assignCrew': {
       const leak = state.leaks.find((row) => row.id === action.leakId)
-      if (leak?.status !== 'verified' || !CREWS.includes(action.crew) || !crewAvailable(state, action.crew))
+      if (leak?.status !== 'verified' || !crewsFor(state).includes(action.crew) || !crewAvailable(state, action.crew))
         return fail(state, 'Choose an available crew for a verified leak.')
       const repair: RepairOrder = {
         id: `WORK-${suffix}`,
@@ -606,11 +629,11 @@ export function reduceNouDilo(
         {
           ...state,
           repairs: replace(state.repairs, { ...repair, status: 'verified' }),
-          leaks: replace(state.leaks, { ...leak, status: 'repaired' }),
+          leaks: replace(state.leaks, { ...leak, status: 'repaired', ...(action.waterRestored ? { waterRestoredAt: at } : {}) }),
         },
         leak.id,
         'Coordinator',
-        `Verified the completed repair. ${action.evidence.trim()}`,
+        `Verified the completed repair.${action.waterRestored ? ' Water restored at the affected home.' : ''} ${action.evidence.trim()}`,
         'Repair verified and published on the Mauritius map.',
       )
     }
@@ -631,7 +654,8 @@ export function reduceNouDilo(
 }
 
 export type NouDiloStore = Snapshot & {
-  dispatch: (action: Action) => void
+  dispatch: (action: Action) => Promise<boolean>
   clearNotice: () => void
   resources?: readonly string[]
+  pending?: boolean
 }

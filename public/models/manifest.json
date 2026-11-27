@@ -1,0 +1,56 @@
+{
+  "author": "NouDilo project",
+  "license": "CC0-1.0",
+  "generator": "scripts/generate-assets.mjs",
+  "assets": [
+    {
+      "file": "house.glb",
+      "bytes": 653720,
+      "triangles": 12604,
+      "drawCalls": 10,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    },
+    {
+      "file": "tanker.glb",
+      "bytes": 666784,
+      "triangles": 14686,
+      "drawCalls": 8,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    },
+    {
+      "file": "palm.glb",
+      "bytes": 291284,
+      "triangles": 9376,
+      "drawCalls": 5,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    },
+    {
+      "file": "maintenance.glb",
+      "bytes": 273864,
+      "triangles": 5256,
+      "drawCalls": 6,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    },
+    {
+      "file": "equipment.glb",
+      "bytes": 218012,
+      "triangles": 4896,
+      "drawCalls": 6,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    },
+    {
+      "file": "office.glb",
+      "bytes": 157636,
+      "triangles": 2436,
+      "drawCalls": 7,
+      "original": true,
+      "refinedWith": "Blender 4.5.9 LTS"
+    }
+  ],
+  "pipeline": "Original procedural geometry, refined and exported using Blender 4.5.9 LTS"
+}

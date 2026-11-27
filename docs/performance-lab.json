@@ -1,0 +1,111 @@
+{
+  "measuredAt": "2026-11-27T09:33:55.920Z",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "environment": "Local headless Google Chrome; hardware/software rendering depends on the host. A single laboratory sample, not mobile p75 or a device guarantee.",
+  "scenario": "Active heavy-leak illustration; no records submitted",
+  "url": "http://127.0.0.1:4176/",
+  "high": {
+    "renderedFrames": 181,
+    "elapsedMs": 3002,
+    "measuredFramesPerSecond": 60.3,
+    "drawCalls": 69,
+    "triangles": 253084
+  },
+  "low": {
+    "drawCalls": 69,
+    "triangles": 128656
+  },
+  "lcp": 180,
+  "cls": 0.005790973955319251,
+  "resources": [
+    {
+      "path": "/assets/index-CpZbduU9.js",
+      "transferredBytes": 81740,
+      "decodedBytes": 286789
+    },
+    {
+      "path": "/assets/index-ZUJf4ThC.css",
+      "transferredBytes": 16845,
+      "decodedBytes": 79897
+    },
+    {
+      "path": "/assets/WorldScene-B6EHS4z7.js",
+      "transferredBytes": 139117,
+      "decodedBytes": 440665
+    },
+    {
+      "path": "/assets/three.module-JQm7-WMu.js",
+      "transferredBytes": 162965,
+      "decodedBytes": 704534
+    },
+    {
+      "path": "/assets/manrope-latin-wght-normal-DHIcAJRg.woff2",
+      "transferredBytes": 25136,
+      "decodedBytes": 24836
+    },
+    {
+      "path": "/assets/inter-latin-wght-normal-Dx4kXJAl.woff2",
+      "transferredBytes": 48556,
+      "decodedBytes": 48256
+    },
+    {
+      "path": "/models/house.glb",
+      "transferredBytes": 170168,
+      "decodedBytes": 653720
+    },
+    {
+      "path": "/textures/concrete_wall_006-Diffuse.webp",
+      "transferredBytes": 167818,
+      "decodedBytes": 167518
+    },
+    {
+      "path": "/textures/concrete_wall_006-nor_gl.webp",
+      "transferredBytes": 388562,
+      "decodedBytes": 388262
+    },
+    {
+      "path": "/textures/concrete_wall_006-arm.webp",
+      "transferredBytes": 235954,
+      "decodedBytes": 235654
+    },
+    {
+      "path": "/textures/aerial_grass_rock-Diffuse.webp",
+      "transferredBytes": 260436,
+      "decodedBytes": 260136
+    },
+    {
+      "path": "/textures/aerial_grass_rock-nor_gl.webp",
+      "transferredBytes": 289160,
+      "decodedBytes": 288860
+    },
+    {
+      "path": "/textures/aerial_grass_rock-arm.webp",
+      "transferredBytes": 158846,
+      "decodedBytes": 158546
+    },
+    {
+      "path": "/models/office.glb",
+      "transferredBytes": 35437,
+      "decodedBytes": 157636
+    },
+    {
+      "path": "/models/tanker.glb",
+      "transferredBytes": 192605,
+      "decodedBytes": 666784
+    },
+    {
+      "path": "/models/palm.glb",
+      "transferredBytes": 110390,
+      "decodedBytes": 291284
+    },
+    {
+      "path": "/models/maintenance.glb",
+      "transferredBytes": 56465,
+      "decodedBytes": 273864
+    }
+  ],
+  "errors": []
+}

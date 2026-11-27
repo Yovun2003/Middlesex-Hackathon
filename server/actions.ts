@@ -19,6 +19,13 @@ function number(value: unknown, min = 0, max = 100_000): number {
   return value
 }
 
+function coordinates(input: unknown) {
+  if (input === undefined) return
+  const p = record(input)
+  if (typeof p.latitude !== 'number' || typeof p.longitude !== 'number' || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || p.latitude < -20.6 || p.latitude > -19.9 || p.longitude < 57.25 || p.longitude > 57.9) throw new Error('Choose a location on Mauritius.')
+  return { latitude: p.latitude, longitude: p.longitude }
+}
+
 function photo(input: unknown): Evidence | undefined {
   if (input === undefined) return
   const value = record(input)
@@ -26,6 +33,13 @@ function photo(input: unknown): Evidence | undefined {
   const preview = value.preview === undefined ? undefined : text(value.preview, 1_500_000)
   if (preview && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(preview))
     throw new Error('Choose a PNG, JPEG, or WebP photo.')
+  if (preview) {
+    const bytes = Buffer.from(preview.split(',')[1], 'base64')
+    const png = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+    const webp = bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+    if (bytes.length > 500_000 || !(png && preview.startsWith('data:image/png;') || jpeg && preview.startsWith('data:image/jpeg;') || webp && preview.startsWith('data:image/webp;'))) throw new Error('Use a valid PNG, JPEG, or WebP photo smaller than 500 KB.')
+  }
   return { name, preview }
 }
 
@@ -46,6 +60,8 @@ export function readAction(input: unknown): Action {
         report: {
           id: reportId, type: kind, town: text(report.town, 80),
           condition: text(report.condition, 80), description: text(report.description, 600, true),
+          additionalNeeds: report.additionalNeeds === true,
+          coordinates: coordinates(report.coordinates),
           ...(kind === 'shortage' ? {
             duration: text(report.duration, 80),
             households: number(report.households, 1, 200),
@@ -65,6 +81,8 @@ export function readAction(input: unknown): Action {
     }
     case 'recordProblem':
       return { type, id: id(), detail: text(value.detail) }
+    case 'declineTanker':
+      return { type, id: id(), reason: text(value.reason) }
     case 'recordDelivery':
       return { type, id: id(), actualLitres: number(value.actualLitres) }
     case 'publishDelivery':
@@ -79,7 +97,7 @@ export function readAction(input: unknown): Action {
     case 'submitRepair':
       return { type, id: id(), work: text(value.work), evidence: photo(value.evidence) }
     case 'verifyRepair':
-      return { type, id: id(), evidence: text(value.evidence) }
+      return { type, id: id(), evidence: text(value.evidence), waterRestored: value.waterRestored === true }
     case 'publishNotice':
       return { type, town: text(value.town, 80), text: text(value.text, 500) }
     default:
