@@ -211,16 +211,14 @@ test('responsive tasks, reduced motion, no-WebGL and failure recovery remain usa
   await fallback.close()
 })
 
-test('normal registration retains reporting intent and optional examples preserve the canvas', async ({ page }) => {
+test('demo account choice retains reporting intent and optional examples preserve the canvas', async ({ page }) => {
   await page.goto('/#/user')
   await expect(page.locator('[data-world-canvas="persistent"]')).toBeAttached({ timeout: 45_000 })
   const canvas = await page.locator('[data-world-canvas="persistent"]').elementHandle()
   await page.getByRole('combobox', { name: 'What are you seeing?', exact: true }).selectOption('Low pressure')
   await page.getByRole('button', { name: 'Continue shortage report', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Create a resident account', exact: true })).toBeVisible()
-  await page.getByLabel('Email', { exact: true }).fill(`registration-${Date.now()}@example.test`)
-  await page.getByLabel('Password', { exact: true }).fill('NouDilo-test-registration-2026')
-  await page.getByRole('button', { name: 'Create account', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Choose a demo account', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resident', exact: true }).click()
   await expect(page.locator('dialog[open]').getByRole('combobox', { name: 'What are you experiencing?', exact: true })).toHaveValue('Low pressure')
   await page.locator('dialog[open]').getByRole('button', { name: 'Show example', exact: true }).click()
   await expect(page.locator('[data-world-canvas]')).toHaveAttribute('data-tap-flow', '0.20')
