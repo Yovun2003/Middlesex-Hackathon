@@ -89,7 +89,7 @@ The official `oracledb` Thin driver requires no local Oracle client installation
 
 The migration under `server/migrations/` is the runnable schema for this adapter. The older `docs/oracle-schema.sql` is a separate proposed, more granular spatial schema; do not apply it as the runtime migration. See [runtime architecture](docs/runtime-architecture.md) and [Oracle proposal](docs/oracle-architecture.md).
 
-Live Oracle execution requires credentials and network connectivity. Connection-stub tests do not prove a live Autonomous Database deployment. The local development adapter and end-to-end scenarios remain usable without Oracle.
+Live Oracle execution requires credentials and network connectivity. Connection-stub tests do not prove a live Autonomous Database deployment. The local development adapter and end-to-end scenarios remain usable without Oracle
 
 ## Quality checks
 
