@@ -19,7 +19,7 @@ For the isolated hackathon demonstration:
 npm run demo
 ```
 
-Demo email/password sign-in (all passwords are **`Randnousdilo`**):
+The demo interface uses **Demo roles** in the header and an account chooser when reporting requires an account. No email/password entry is needed. Password-based demo authentication remains available through the API for testing (all passwords are **`Randnousdilo`**):
 
 | Email | Workspace |
 | --- | --- |

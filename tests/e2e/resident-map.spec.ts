@@ -42,7 +42,8 @@ test('resident can pin a problem, save it privately, browse public updates and r
  await expect(page.locator('.task-scroll')).toContainText('Grand Baie')
  await page.getByRole('combobox',{name:'Show',exact:true}).selectOption('leak')
  await expect(page.locator('.task-scroll')).not.toContainText('Grand Baie')
- await page.getByRole('button',{name:'Sign out',exact:true}).click()
+ await page.request.post('/api/logout')
+ await page.goto('/')
  const publicData=(await(await page.request.get('/api/state')).json()).state
  expect(publicData.reports).toEqual([])
  await page.getByRole('link',{name:'Water problems map',exact:true}).click()
