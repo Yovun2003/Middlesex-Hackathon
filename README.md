@@ -76,7 +76,7 @@ printf '%s\n' "$nou_password" | npm run account -- worker crew@example.test "Cen
 unset nou_password
 ```
 
-The local development fallback retains the established example fleet (`WT-04`, `WT-07`, `WT-09`) and crew names for compatibility. Oracle starts with zero inventory and requires explicit operational configuration. A vehicle or crew is assignable only after an associated worker account exists.
+The local development fallback retains the established example fleet (`WT-04`, `WT-07`, `WT-09`) and crew names for compatibility. Oracle starts with zero inventory and requires explicit operational configuration. A vehicle or crew is assignable only after an associated worker account exists
 
 ## Oracle Autonomous Database
 
